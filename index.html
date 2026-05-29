@@ -720,6 +720,12 @@
       opacity: 0.85;
     }
 
+    @media (hover: none) and (pointer: coarse) {
+      .tilt-cursor {
+        display: none !important;
+      }
+    }
+
     @media (hover: hover) and (pointer: fine) {
       .tilt-prompt,
       .tilt-cursor {
