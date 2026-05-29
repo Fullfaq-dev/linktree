@@ -188,11 +188,15 @@
       padding: clamp(1rem, 4vw, 3rem);
       background: linear-gradient(135deg, rgba(13, 11, 10, 0.75) 0%, rgba(26, 21, 18, 0.92) 100%);
       backdrop-filter: blur(2px);
+      perspective: 900px;
+      transform-style: preserve-3d;
       transform: translate3d(
         calc(var(--parallax-x) * -0.08px),
         calc(var(--parallax-y) * -0.08px),
         0
-      );
+      )
+      rotateX(calc(var(--tilt-y) * -0.4deg))
+      rotateY(calc(var(--tilt-x) * 0.4deg));
     }
 
     .content-inner {
@@ -385,7 +389,8 @@
       100% { transform: translateX(120%); }
     }
 
-    .link:hover, .link:focus-visible {
+    .link:hover, .link:focus-visible,
+    .link.tilt-hover {
       transform: translateY(-3px) scale(1.02);
       border-color: rgba(244, 164, 96, 0.55);
       background: var(--glass-hover);
@@ -394,6 +399,14 @@
         0 0 0 1px rgba(255, 215, 0, 0.1),
         inset 0 1px 0 rgba(255, 255, 255, 0.08);
       outline: none;
+    }
+
+    .link.tilt-hover {
+      transition:
+        transform 0.12s cubic-bezier(0.22, 1, 0.36, 1),
+        border-color 0.25s ease,
+        box-shadow 0.25s ease,
+        background 0.25s ease;
     }
 
     .link:active {
@@ -414,7 +427,8 @@
       transition: transform 0.35s ease, background 0.35s ease;
     }
 
-    .link:hover .link-icon {
+    .link:hover .link-icon,
+    .link.tilt-hover .link-icon {
       transform: scale(1.08) rotate(-3deg);
       background: rgba(244, 164, 96, 0.25);
     }
@@ -451,7 +465,8 @@
       transition: transform 0.35s ease, opacity 0.35s ease;
     }
 
-    .link:hover .link-arrow {
+    .link:hover .link-arrow,
+    .link.tilt-hover .link-arrow {
       transform: translateX(4px);
       opacity: 0.8;
     }
@@ -640,6 +655,77 @@
         transform: none !important;
       }
     }
+
+    /* ── Tilt permission hint (iOS) ── */
+    .tilt-prompt {
+      position: fixed;
+      z-index: 100;
+      left: 50%;
+      bottom: max(1.25rem, env(safe-area-inset-bottom));
+      transform: translateX(-50%) translateY(120%);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.75rem 1.1rem;
+      border-radius: 999px;
+      border: 1px solid var(--glass-border);
+      background: rgba(13, 11, 10, 0.88);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      color: var(--peach);
+      font-size: 0.8rem;
+      font-weight: 500;
+      cursor: pointer;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+      transition: transform 0.5s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.4s ease;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .tilt-prompt.is-visible {
+      transform: translateX(-50%) translateY(0);
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .tilt-prompt.is-hidden {
+      transform: translateX(-50%) translateY(120%);
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .tilt-prompt svg {
+      width: 18px;
+      height: 18px;
+      fill: var(--gold-bright);
+      flex-shrink: 0;
+    }
+
+    .tilt-cursor {
+      position: fixed;
+      z-index: 50;
+      width: 14px;
+      height: 14px;
+      margin: -7px 0 0 -7px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(255, 215, 0, 0.9) 0%, rgba(244, 164, 96, 0.4) 55%, transparent 70%);
+      box-shadow: 0 0 20px rgba(255, 215, 0, 0.45);
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.4s ease;
+      will-change: transform;
+    }
+
+    body.tilt-active .tilt-cursor {
+      opacity: 0.85;
+    }
+
+    @media (hover: hover) and (pointer: fine) {
+      .tilt-prompt,
+      .tilt-cursor {
+        display: none;
+      }
+    }
   </style>
 </head>
 <body>
@@ -731,20 +817,44 @@
     </div>
   </div>
 
+  <div class="tilt-cursor" id="tiltCursor" aria-hidden="true"></div>
+
+  <button type="button" class="tilt-prompt" id="tiltPrompt" aria-label="Включить управление наклоном">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16.48 2.52c3.27 1.55 5.61 4.72 5.97 8.48h1.5C23.44 4.84 18.29 0 12 0S.56 4.84.05 11h1.5c.36-3.76 2.7-6.93 5.97-8.52C9.66 3.51 10.8 3 12 3s2.34.51 3.48 1.52zM12 22c-1.1 0-2-.9-2-2h4c0 1.1-.9 2-2 2zm6.76-7H5.24c.05 3.89 3.16 7 7.02 7h.48c3.86 0 6.97-3.11 7.02-7z"/></svg>
+    Наклони телефон — включить эффекты
+  </button>
+
   <script>
     (function () {
       const root = document.documentElement;
       const page = document.getElementById('page');
+      const tiltPrompt = document.getElementById('tiltPrompt');
+      const tiltCursor = document.getElementById('tiltCursor');
+      const links = Array.from(document.querySelectorAll('.link'));
       const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      const isCoarsePointer = window.matchMedia('(hover: none) and (pointer: coarse)').matches;
 
       let targetX = 0, targetY = 0;
       let currentX = 0, currentY = 0;
-      let tiltX = 0, tiltY = 0;
+      let targetTiltX = 0, targetTiltY = 0;
+      let currentTiltX = 0, currentTiltY = 0;
+      let virtualX = window.innerWidth / 2;
+      let virtualY = window.innerHeight / 2;
       let rafId = null;
+      let tiltEnabled = false;
+      let baseBeta = null;
+      let baseGamma = null;
 
       const MAX_PARALLAX = 28;
-      const MAX_TILT = 18;
-      const LERP = prefersReduced ? 1 : 0.08;
+      const MAX_TILT = 22;
+      const LERP = prefersReduced ? 1 : 0.1;
+      const TILT_SENS_X = 28;
+      const TILT_SENS_Y = 22;
+      const HOVER_RADIUS = 200;
+
+      function clamp(v, min, max) {
+        return Math.max(min, Math.min(max, v));
+      }
 
       function lerp(a, b, t) {
         return a + (b - a) * t;
@@ -753,55 +863,159 @@
       function setVars() {
         currentX = lerp(currentX, targetX, LERP);
         currentY = lerp(currentY, targetY, LERP);
+        currentTiltX = lerp(currentTiltX, targetTiltX, LERP);
+        currentTiltY = lerp(currentTiltY, targetTiltY, LERP);
+
         root.style.setProperty('--parallax-x', currentX.toFixed(2));
         root.style.setProperty('--parallax-y', currentY.toFixed(2));
-        root.style.setProperty('--tilt-x', tiltX.toFixed(2));
-        root.style.setProperty('--tilt-y', tiltY.toFixed(2));
+        root.style.setProperty('--tilt-x', currentTiltX.toFixed(2));
+        root.style.setProperty('--tilt-y', currentTiltY.toFixed(2));
 
-        if (Math.abs(currentX - targetX) > 0.05 || Math.abs(currentY - targetY) > 0.05) {
-          rafId = requestAnimationFrame(setVars);
-        } else {
-          rafId = null;
+        if (tiltEnabled) {
+          updateTiltHover();
+          tiltCursor.style.transform = 'translate3d(' + virtualX + 'px, ' + virtualY + 'px, 0)';
         }
+
+        rafId = requestAnimationFrame(setVars);
       }
 
-      function requestTick() {
+      function startLoop() {
         if (!rafId) rafId = requestAnimationFrame(setVars);
       }
 
+      function calibrate(beta, gamma) {
+        if (baseBeta === null) {
+          baseBeta = beta;
+          baseGamma = gamma;
+        }
+      }
+
+      function applyTilt(beta, gamma) {
+        calibrate(beta, gamma);
+
+        const dx = gamma - baseGamma;
+        const dy = beta - baseBeta;
+        const normX = clamp(dx / TILT_SENS_X, -1, 1);
+        const normY = clamp(dy / TILT_SENS_Y, -1, 1);
+
+        targetTiltX = normX * MAX_TILT;
+        targetTiltY = normY * MAX_TILT;
+        targetX = normX * MAX_PARALLAX;
+        targetY = normY * MAX_PARALLAX;
+
+        virtualX = window.innerWidth * (0.5 + normX * 0.44);
+        virtualY = window.innerHeight * (0.5 + normY * 0.4);
+      }
+
+      function onOrientation(e) {
+        if (prefersReduced || !tiltEnabled) return;
+        const beta = e.beta;
+        const gamma = e.gamma;
+        if (beta == null || gamma == null) return;
+        applyTilt(beta, gamma);
+      }
+
+      function updateTiltHover() {
+        let closest = null;
+        let minDist = Infinity;
+
+        links.forEach(function (link) {
+          const rect = link.getBoundingClientRect();
+          const cx = rect.left + rect.width / 2;
+          const cy = rect.top + rect.height / 2;
+          const dist = Math.hypot(virtualX - cx, virtualY - cy);
+          if (dist < minDist) {
+            minDist = dist;
+            closest = link;
+          }
+        });
+
+        links.forEach(function (link) {
+          const isActive = link === closest && minDist < HOVER_RADIUS;
+          link.classList.toggle('tilt-hover', isActive);
+
+          if (isActive) {
+            const rect = link.getBoundingClientRect();
+            const lx = virtualX - rect.left - rect.width / 2;
+            const ly = virtualY - rect.top - rect.height / 2;
+            link.style.transform = 'translate(' + (lx * 0.07).toFixed(2) + 'px, ' + (ly * 0.07 - 3).toFixed(2) + 'px) scale(1.02)';
+          } else {
+            link.style.transform = '';
+          }
+        });
+      }
+
+      function enableTilt() {
+        if (tiltEnabled || prefersReduced) return;
+        tiltEnabled = true;
+        baseBeta = null;
+        baseGamma = null;
+        document.body.classList.add('tilt-active');
+        tiltPrompt.classList.remove('is-visible');
+        tiltPrompt.classList.add('is-hidden');
+        startLoop();
+      }
+
+      function bindOrientation() {
+        window.addEventListener('deviceorientation', onOrientation, { passive: true });
+        enableTilt();
+      }
+
+      function requestTiltAccess() {
+        if (typeof DeviceOrientationEvent !== 'undefined' &&
+            typeof DeviceOrientationEvent.requestPermission === 'function') {
+          DeviceOrientationEvent.requestPermission()
+            .then(function (state) {
+              if (state === 'granted') bindOrientation();
+            })
+            .catch(function () {});
+          return;
+        }
+        bindOrientation();
+      }
+
       function onPointerMove(e) {
-        if (prefersReduced) return;
+        if (prefersReduced || tiltEnabled) return;
         const x = (e.clientX / window.innerWidth - 0.5) * 2;
         const y = (e.clientY / window.innerHeight - 0.5) * 2;
         targetX = x * MAX_PARALLAX;
         targetY = y * MAX_PARALLAX;
-        requestTick();
+        targetTiltX = x * MAX_TILT * 0.5;
+        targetTiltY = y * MAX_TILT * 0.5;
+        startLoop();
       }
 
       function onPointerLeave() {
+        if (tiltEnabled) return;
         targetX = 0;
         targetY = 0;
-        requestTick();
-      }
-
-      function onOrientation(e) {
-        if (prefersReduced) return;
-        const beta = e.beta;
-        const gamma = e.gamma;
-        if (beta == null || gamma == null) return;
-        tiltX = Math.max(-MAX_TILT, Math.min(MAX_TILT, gamma * 0.4));
-        tiltY = Math.max(-MAX_TILT, Math.min(MAX_TILT, (beta - 45) * 0.3));
-        targetX = tiltX * 1.2;
-        targetY = tiltY * 1.2;
-        requestTick();
+        targetTiltX = 0;
+        targetTiltY = 0;
       }
 
       page.addEventListener('mousemove', onPointerMove, { passive: true });
       page.addEventListener('mouseleave', onPointerLeave);
 
-      if (window.DeviceOrientationEvent) {
-        window.addEventListener('deviceorientation', onOrientation, { passive: true });
+      tiltPrompt.addEventListener('click', requestTiltAccess);
+
+      if (isCoarsePointer && !prefersReduced) {
+        setTimeout(function () {
+          tiltPrompt.classList.add('is-visible');
+        }, 1200);
+
+        if (typeof DeviceOrientationEvent !== 'undefined' &&
+            typeof DeviceOrientationEvent.requestPermission !== 'function') {
+          bindOrientation();
+          tiltPrompt.classList.remove('is-visible');
+        }
+      } else {
+        startLoop();
       }
+
+      window.addEventListener('orientationchange', function () {
+        baseBeta = null;
+        baseGamma = null;
+      });
 
       /* Particles */
       if (!prefersReduced) {
@@ -812,34 +1026,31 @@
           const p = document.createElement('div');
           p.className = 'particle';
           const size = 2 + Math.random() * 3;
-          p.style.cssText = `
-            width: ${size}px;
-            height: ${size}px;
-            left: ${Math.random() * 100}%;
-            bottom: -10px;
-            --dur: ${6 + Math.random() * 8}s;
-            --delay: ${Math.random() * 8}s;
-            --op: ${0.15 + Math.random() * 0.35};
-          `;
+          p.style.cssText =
+            'width:' + size + 'px;height:' + size + 'px;' +
+            'left:' + (Math.random() * 100) + '%;bottom:-10px;' +
+            '--dur:' + (6 + Math.random() * 8) + 's;' +
+            '--delay:' + (Math.random() * 8) + 's;' +
+            '--op:' + (0.15 + Math.random() * 0.35);
           container.appendChild(p);
         }
       }
 
-      /* Prevent scroll bounce on iOS */
       document.body.addEventListener('touchmove', function (e) {
         if (e.target === document.body) e.preventDefault();
       }, { passive: false });
 
-      /* Magnetic hover on links (desktop) */
       if (!prefersReduced && window.matchMedia('(hover: hover)').matches) {
-        document.querySelectorAll('.link').forEach(function (link) {
+        links.forEach(function (link) {
           link.addEventListener('mousemove', function (e) {
+            if (tiltEnabled) return;
             const rect = link.getBoundingClientRect();
             const x = e.clientX - rect.left - rect.width / 2;
             const y = e.clientY - rect.top - rect.height / 2;
-            link.style.transform = `translate(${x * 0.06}px, ${y * 0.06 - 3}px) scale(1.02)`;
+            link.style.transform = 'translate(' + (x * 0.06) + 'px, ' + (y * 0.06 - 3) + 'px) scale(1.02)';
           });
           link.addEventListener('mouseleave', function () {
+            if (tiltEnabled) return;
             link.style.transform = '';
           });
         });
